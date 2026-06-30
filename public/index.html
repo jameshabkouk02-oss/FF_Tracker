@@ -86,6 +86,7 @@
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab(0)">FIN · Main Set</button>
   <button class="tab-btn" onclick="switchTab(1)">FIC · Commander</button>
+  <button class="tab-btn" onclick="switchTab(2)">FCA · Bonus Sets</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -126,7 +127,13 @@
     <div class="logo">FF · MTG Tracker <span>FIC Commander Set · 486 Cards</span></div>
     <div class="stats-row" id="fic-stats" style="display:none">
       <div class="stat"><div class="stat-n g" id="fic-owned">0</div><div class="stat-l">Owned</div></div>
-      <div class="stat"><div class="stat-n" id="fic-miss">0</div><div class="stat-l">Missing</div></div>
+      <div class="stat"><div class="stat-n" id="fic-miss">0</div><div class="stat-l">Missing</div>
+  <div class="stats-row" id="fca-stats" style="display:none">
+    <div class="stat"><div class="stat-n green" id="fca-owned-old">0</div><div class="stat-l">Owned</div></div>
+    <div class="stat"><div class="stat-n" id="fca-miss-old">117</div><div class="stat-l">Missing</div></div>
+    <div class="stat"><div class="stat-n gold" id="fca-pct-old">0%</div><div class="stat-l">Done</div></div>
+    <div class="stat"><div class="stat-n" id="fca-total-old">117</div><div class="stat-l">Total</div></div>
+  </div></div>
       <div class="stat"><div class="stat-n a" id="fic-pct">0%</div><div class="stat-l">Done</div></div>
       <div class="stat"><div class="stat-n" id="fic-total">0</div><div class="stat-l">Total</div></div>
     </div>
@@ -606,47 +613,13 @@ const owned=[{},{}];
 const showMissing=[false,false];
 let activeTab=0;
 
-// API endpoint that reads/writes the shared collection (Vercel function + Upstash Redis)
-const API="/api/collection";
-
 async function loadAll(){
-  // 1) Show the local cache immediately so the app is instant and works offline.
   for(let t=0;t<2;t++){
     try{const d=localStorage.getItem(KEYS[t]);if(d)Object.assign(owned[t],JSON.parse(d));}catch(e){}
   }
   render(0);render(1);
-  // 2) Then pull the shared copy from the server. The server is the source of truth,
-  //    so once it answers we adopt its data and refresh the local cache.
-  try{
-    const r=await fetch(API,{cache:"no-store"});
-    if(r.ok){
-      const data=await r.json();
-      owned[0]=data.fin||{};
-      owned[1]=data.fic||{};
-      try{localStorage.setItem(KEYS[0],JSON.stringify(owned[0]));}catch(e){}
-      try{localStorage.setItem(KEYS[1],JSON.stringify(owned[1]));}catch(e){}
-      render(0);render(1);
-    }
-  }catch(e){/* offline or API unreachable: keep showing the local cache */}
 }
-
-// Every change writes locally at once, then pushes the whole collection to the
-// server (debounced, so rapid taps result in a single network write).
-let syncTimer=null;
-function save(t){
-  try{localStorage.setItem(KEYS[t],JSON.stringify(owned[t]));}catch(e){}
-  clearTimeout(syncTimer);
-  syncTimer=setTimeout(syncToServer,600);
-}
-function syncToServer(){
-  try{
-    fetch(API,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({fin:owned[0],fic:owned[1]})
-    }).catch(()=>{});
-  }catch(e){}
-}
+function save(t){try{localStorage.setItem(KEYS[t],JSON.stringify(owned[t]));}catch(e){}}
 
 function toggleRow(t,idx){
   const k=CARDS[t][idx][0];
@@ -671,6 +644,8 @@ function switchTab(t){
   document.querySelectorAll('.page').forEach((p,i)=>p.classList.toggle('active',i===t));
   var fs=document.getElementById('fin-stats'); if(fs) fs.style.display=t===0?'grid':'none';
   var fc=document.getElementById('fic-stats'); if(fc) fc.style.display=t===1?'grid':'none';
+  var fa=document.getElementById('fca-stats'); if(fa) fa.style.display=t===2?'grid':'none';
+  if(t===2) renderFCA();
 }
 
 function filteredCards(t){
@@ -742,6 +717,486 @@ function closePopup(){document.getElementById('popup').classList.remove('show');
 
 document.addEventListener("DOMContentLoaded",function(){loadAll();});
 
+// ═══════════════════════════════════════
+// FIC — FINAL FANTASY COMMANDER
+// [#, section, name]
+// ═══════════════════════════════════════
+const FIC_CARDS=[
+[1,"W","Celes, Rune Knight"],[2,"W","Cloud, Ex-SOLDIER"],[3,"W","G'raha Tia, Scion Reborn"],[4,"W","Terra, Herald of Hope"],[5,"W","Tidus, Yuna's Guardian"],[6,"W","Tifa, Martial Artist"],[7,"W","Y'shtola, Night's Blessed"],[8,"W","Yuna, Grand Summoner"],
+[9,"W","Alisaie Leveilleur"],[10,"W","Auron, Venerated Guardian"],[11,"W","Champions from Beyond"],[12,"W","Chocobo Knights"],[13,"W","Cid, Freeflier Pilot"],[14,"W","Cloud's Limit Break"],[15,"W","Coin of Fate"],[16,"W","Cyan, Vengeful Samurai"],
+[17,"W","Dancer's Chakrams"],[18,"W","Elena, Turk Recruit"],[19,"W","Gatta and Luzzu"],[20,"W","General Leo Cristophe"],[21,"W","Heidegger, Shinra Executive"],[22,"W","Helitrooper"],[23,"W","Lord Jyscal Guado"],[24,"W","Protection Magic"],
+[25,"W","SOLDIER Military Program"],[26,"W","Summon: Good King Mog XII"],[27,"W","Summon: Ixion"],[28,"W","Summon: Yojimbo"],[29,"W","Summoner's Sending"],[30,"W","Tataru Taru"],[31,"W","Thancred Waters"],[32,"W","Ultimate Magic: Holy"],
+[33,"U","Alphinaud Leveilleur"],[34,"U","Blitzball Stadium"],[35,"U","Blue Mage's Cane"],[36,"U","Hermes, Overseer of Elpis"],[37,"U","Hraesvelgr of the First Brood"],[38,"U","Lulu, Stern Guardian"],[39,"U","O'aka, Traveling Merchant"],[40,"U","Observed Stasis"],
+[41,"U","Rikku, Resourceful Guardian"],[42,"U","Summon: Valefor"],
+[43,"B","Espers to Magicite"],[44,"B","Eye of Nidhogg"],[45,"B","The Falcon, Airship Restored"],[46,"B","Fandaniel, Telophoroi Ascian"],[47,"B","Interceptor, Shadow's Hound"],[48,"B","Reaper's Scythe"],[49,"B","Rejoin the Fight"],[50,"B","Shadow, Mysterious Assassin"],
+[51,"B","Siegfried, Famed Swordsman"],[52,"B","Transpose"],
+[53,"R","Avalanche of Sector 7"],[54,"R","Cait Sith, Fortune Teller"],[55,"R","Gau, Feral Youth"],[56,"R","Gogo, Mysterious Mime"],[57,"R","Sabin, Master Monk"],[58,"R","Snort"],[59,"R","Strago and Relm"],[60,"R","Summon: Esper Valigarmanda"],
+[61,"R","Summon: Kujata"],[62,"R","Ultimate Magic: Meteor"],[63,"R","Umaro, Raging Yeti"],[64,"R","Vincent, Vengeful Atoner"],[65,"R","Yuffie, Materia Hunter"],
+[66,"G","Bugenhagen, Wise Elder"],[67,"G","Lifestream's Blessing"],[68,"G","Maester Seymour"],[69,"G","Professor Hojo"],[70,"G","Sphere Grid"],[71,"G","Summon: Magus Sisters"],[72,"G","Summoning Materia"],[73,"G","Tromell, Seymour's Butler"],
+[74,"G","Yuna's Decision"],[75,"G","Yuna's Whistle"],
+[76,"M","Aerith, Last Ancient"],[77,"M","Ardbert, Warrior of Darkness"],[78,"M","Banon, the Returners' Leader"],[79,"M","Barret, Avalanche Leader"],[80,"M","Edgar, Master Machinist"],[81,"M","Emet-Selch of the Third Seat"],[82,"M","Estinien Varlineau"],
+[83,"M","Hildibrand Manderville"],[84,"M","Kefka, Dancing Mad"],[85,"M","Kimahri, Valiant Guardian"],[86,"M","Krile Baldesion"],[87,"M","Locke, Treasure Hunter"],[88,"M","Lyse Hext"],[89,"M","Mog, Moogle Warrior"],[90,"M","Papalymo Totolymo"],
+[91,"M","Red XIII, Proud Warrior"],[92,"M","Sephiroth, Fallen Hero"],[93,"M","Setzer, Wandering Gambler"],[94,"M","Shelinda, Yevon Acolyte"],[95,"M","Sin, Unending Cataclysm"],[96,"M","Urianger Augurelt"],[97,"M","Wakka, Devoted Guardian"],
+[98,"M","Conformer Shuriken"],[99,"M","The Warring Triad"],[100,"M","Wrecking Ball Arm"],
+[101,"X","Champions from Beyond (Extended Art)"],[102,"X","Chocobo Knights (Extended Art)"],[103,"X","Cloud's Limit Break (Extended Art)"],[104,"X","Coin of Fate (Extended Art)"],[105,"X","Dancer's Chakrams (Extended Art)"],[106,"X","Helitrooper (Extended Art)"],
+[107,"X","Protection Magic (Extended Art)"],[108,"X","SOLDIER Military Program (Extended Art)"],[109,"X","Summoner's Sending (Extended Art)"],[110,"X","Ultimate Magic: Holy (Extended Art)"],
+[111,"X","Blitzball Stadium (Extended Art)"],[112,"X","Blue Mage's Cane (Extended Art)"],[113,"X","Observed Stasis (Extended Art)"],
+[114,"X","Espers to Magicite (Extended Art)"],[115,"X","Eye of Nidhogg (Extended Art)"],[116,"X","The Falcon, Airship Restored (Extended Art)"],[117,"X","Reaper's Scythe (Extended Art)"],[118,"X","Rejoin the Fight (Extended Art)"],[119,"X","Transpose (Extended Art)"],
+[120,"X","Snort (Extended Art)"],[121,"X","Ultimate Magic: Meteor (Extended Art)"],
+[122,"X","Lifestream's Blessing (Extended Art)"],[123,"X","Sphere Grid (Extended Art)"],[124,"X","Summoning Materia (Extended Art)"],[125,"X","Yuna's Decision (Extended Art)"],[126,"X","Yuna's Whistle (Extended Art)"],
+[127,"X","Conformer Shuriken (Extended Art)"],[128,"X","Wrecking Ball Arm (Extended Art)"],
+[129,"X","Alisaie Leveilleur (Extended Art)"],[130,"X","Auron, Venerated Guardian (Extended Art)"],[131,"X","Cid, Freeflier Pilot (Extended Art)"],[132,"X","Cyan, Vengeful Samurai (Extended Art)"],[133,"X","Elena, Turk Recruit (Extended Art)"],
+[134,"X","Gatta and Luzzu (Extended Art)"],[135,"X","General Leo Cristophe (Extended Art)"],[136,"X","Heidegger, Shinra Executive (Extended Art)"],[137,"X","Lord Jyscal Guado (Extended Art)"],[138,"X","Tataru Taru (Extended Art)"],[139,"X","Thancred Waters (Extended Art)"],
+[140,"X","Alphinaud Leveilleur (Extended Art)"],[141,"X","Hermes, Overseer of Elpis (Extended Art)"],[142,"X","Hraesvelgr of the First Brood (Extended Art)"],[143,"X","Lulu, Stern Guardian (Extended Art)"],[144,"X","O'aka, Traveling Merchant (Extended Art)"],
+[145,"X","Rikku, Resourceful Guardian (Extended Art)"],[146,"X","Fandaniel, Telophoroi Ascian (Extended Art)"],[147,"X","Interceptor, Shadow's Hound (Extended Art)"],[148,"X","Shadow, Mysterious Assassin (Extended Art)"],[149,"X","Siegfried, Famed Swordsman (Extended Art)"],
+[150,"X","Avalanche of Sector 7 (Extended Art)"],[151,"X","Cait Sith, Fortune Teller (Extended Art)"],[152,"X","Gogo, Mysterious Mime (Extended Art)"],[153,"X","Gau, Feral Youth (Extended Art)"],[154,"X","Sabin, Master Monk (Extended Art)"],
+[155,"X","Strago and Relm (Extended Art)"],[156,"X","Umaro, Raging Yeti (Extended Art)"],[157,"X","Vincent, Vengeful Atoner (Extended Art)"],[158,"X","Yuffie, Materia Hunter (Extended Art)"],
+[159,"X","Bugenhagen, Wise Elder (Extended Art)"],[160,"X","Maester Seymour (Extended Art)"],[161,"X","Professor Hojo (Extended Art)"],[162,"X","Tromell, Seymour's Butler (Extended Art)"],
+[163,"X","Aerith, Last Ancient (Extended Art)"],[164,"X","Ardbert, Warrior of Darkness (Extended Art)"],[165,"X","Banon, the Returners' Leader (Extended Art)"],[166,"X","Barret, Avalanche Leader (Extended Art)"],
+[167,"X","Celes, Rune Knight (Extended Art)"],[168,"X","Cloud, Ex-SOLDIER (Extended Art)"],[169,"X","Edgar, Master Machinist (Extended Art)"],[170,"X","Emet-Selch of the Third Seat (Extended Art)"],[171,"X","Estinien Varlineau (Extended Art)"],
+[172,"X","G'raha Tia, Scion Reborn (Extended Art)"],[173,"X","Hildibrand Manderville (Extended Art)"],[174,"X","Kefka, Dancing Mad (Extended Art)"],[175,"X","Kimahri, Valiant Guardian (Extended Art)"],[176,"X","Krile Baldesion (Extended Art)"],
+[177,"X","Locke, Treasure Hunter (Extended Art)"],[178,"X","Lyse Hext (Extended Art)"],[179,"X","Mog, Moogle Warrior (Extended Art)"],[180,"X","Papalymo Totolymo (Extended Art)"],[181,"X","Red XIII, Proud Warrior (Extended Art)"],
+[182,"X","Sephiroth, Fallen Hero (Extended Art)"],[183,"X","Setzer, Wandering Gambler (Extended Art)"],[184,"X","Shelinda, Yevon Acolyte (Extended Art)"],[185,"X","Sin, Unending Cataclysm (Extended Art)"],
+[186,"X","Terra, Herald of Hope (Extended Art)"],[187,"X","Tidus, Yuna's Guardian (Extended Art)"],[188,"X","Tifa, Martial Artist (Extended Art)"],[189,"X","Urianger Augurelt (Extended Art)"],[190,"X","Wakka, Devoted Guardian (Extended Art)"],
+[191,"X","Y'shtola, Night's Blessed (Extended Art)"],[192,"X","Yuna, Grand Summoner (Extended Art)"],
+[201,"V","Celes, Rune Knight (Borderless)"],[202,"V","Cloud, Ex-SOLDIER (Borderless)"],[203,"V","G'raha Tia, Scion Reborn (Borderless)"],[204,"V","Terra, Herald of Hope (Borderless)"],[205,"V","Tidus, Yuna's Guardian (Borderless)"],
+[206,"V","Tifa, Martial Artist (Borderless)"],[207,"V","Y'shtola, Night's Blessed (Borderless)"],[208,"V","Yuna, Grand Summoner (Borderless)"],
+[209,"V","Celes, Rune Knight (Borderless Surge Foil)"],[210,"V","Cloud, Ex-SOLDIER (Borderless Surge Foil)"],[211,"V","G'raha Tia, Scion Reborn (Borderless Surge Foil)"],[212,"V","Terra, Herald of Hope (Borderless Surge Foil)"],
+[213,"V","Tidus, Yuna's Guardian (Borderless Surge Foil)"],[214,"V","Tifa, Martial Artist (Borderless Surge Foil)"],[215,"V","Y'shtola, Night's Blessed (Borderless Surge Foil)"],[216,"V","Yuna, Grand Summoner (Borderless Surge Foil)"],
+[217,"A","Secret Rendezvous"],[218,"A","Secret Rendezvous (Alt)"],[219,"A","Secret Rendezvous (Alt 2)"],
+[229,"A","Angel of the Ruins"],[230,"A","Archaeomancer's Map"],[231,"A","Authority of the Consuls"],[232,"A","Austere Command"],[233,"A","Bastion Protector"],[234,"A","Bronze Guardian"],[235,"A","Cleansing Nova"],[236,"A","Clever Concealment"],
+[237,"A","Collective Effort"],[238,"A","Cut a Deal"],[239,"A","Damning Verdict"],[240,"A","Destroy Evil"],[241,"A","Dispatch"],[242,"A","Farewell"],[243,"A","Final Judgment"],[244,"A","Grateful Apparition"],
+[245,"A","Lingering Souls"],[246,"A","Luminous Broodmoth"],[247,"A","Palace Jailer"],[248,"A","Path to Exile"],[249,"A","Promise of Loyalty"],[250,"A","Puresteel Paladin"],[251,"A","Resourceful Defense"],[252,"A","Scholar of New Horizons"],
+[253,"A","Secret Rendezvous (Alt 3)"],[254,"A","Sun Titan"],[255,"A","Sunscorch Regent"],[256,"A","Swords to Plowshares"],[257,"A","Together Forever"],[258,"A","Tragic Arrogance"],[259,"A","Unfinished Business"],[260,"A","Vanquish the Horde"],
+[261,"A","Archmage Emeritus"],[262,"A","Chasm Skulker"],[263,"A","Dig Through Time"],[264,"A","Hypnotic Sprite"],[265,"A","Inexorable Tide"],[266,"A","Into the Story"],[267,"A","An Offer You Can't Refuse"],[268,"A","Propaganda"],
+[269,"A","Pull from Tomorrow"],[270,"A","Rite of Replication"],[271,"A","Sublime Epiphany"],[272,"A","Torrential Gearhulk"],
+[273,"A","Archfiend of Depravity"],[274,"A","Bastion of Remembrance"],[275,"A","Crux of Fate"],[276,"A","Exsanguinate"],[277,"A","Lethal Scheme"],[278,"A","Morbid Opportunist"],[279,"A","Murderous Rider"],[280,"A","Night's Whisper"],
+[281,"A","Pitiless Plunderer"],[282,"A","Reanimate"],[283,"A","Rise of the Dark Realms"],[284,"A","Sepulchral Primordial"],[285,"A","Snuff Out"],[286,"A","Stitch Together"],[287,"A","Stitcher's Supplier"],[288,"A","Syphon Mind"],
+[289,"A","Anger"],[290,"A","Big Score"],[291,"A","Chaos Warp"],[292,"A","Combustible Gearhulk"],[293,"A","Flayer of the Hatebound"],[294,"A","Furious Rise"],[295,"A","Hellkite Tyrant"],[296,"A","Professional Face-Breaker"],
+[297,"A","Ruin Grinder"],[298,"A","Vandalblast"],
+[299,"A","Bane of Progress"],[300,"A","Cultivate"],[301,"A","Duskshell Crawler"],[302,"A","Farseek"],[303,"A","Fight Rigging"],[304,"A","Forgotten Ancient"],[305,"A","Generous Patron"],[306,"A","Gyre Sage"],
+[307,"A","Hardened Scales"],[308,"A","Harmonize"],[309,"A","Incubation Druid"],[310,"A","Inspiring Call"],[311,"A","Nature's Lore"],[312,"A","Path of Discovery"],[313,"A","Rampant Growth"],[314,"A","Rampant Rejuvenator"],
+[315,"A","Three Visits"],[316,"A","Tireless Tracker"],
+[317,"A","Altered Ego"],[318,"A","Baleful Strix"],[319,"A","Bedevil"],[320,"A","Behemoth Sledge"],[321,"A","Bred for the Hunt"],[322,"A","Crackling Doom"],[323,"A","Decimate"],[324,"A","Endless Detour"],
+[325,"A","Fathom Mage"],[326,"A","Legions to Ashes"],[327,"A","Mortify"],[328,"A","Priest of Fell Rites"],[329,"A","Ruinous Ultimatum"],[330,"A","Vindicate"],[331,"A","Void Rend"],
+[332,"A","Arcane Signet"],[333,"A","Arcane Signet (Alt)"],[334,"A","Arcane Signet (Alt 2)"],[335,"A","Arcane Signet (Alt 3)"],[336,"A","Armory Automaton"],[337,"A","Champion's Helm"],[338,"A","Colossus Hammer"],[339,"A","Commander's Sphere"],
+[340,"A","Conqueror's Flail"],[341,"A","Coveted Jewel"],[342,"A","Darksteel Plate"],[343,"A","Everflowing Chalice"],[344,"A","Explorer's Scope"],[345,"A","Hero's Blade"],[346,"A","Hero's Heirloom"],[347,"A","Inspiring Statuary"],
+[348,"A","Key to the City"],[349,"A","Lightning Greaves"],[350,"A","Mask of Memory"],[351,"A","Meteor Golem"],[352,"A","Millikin"],[353,"A","Mind Stone"],[354,"A","Relic of Legends"],[355,"A","Skullclamp"],
+[356,"A","Sol Ring"],[357,"A","Sol Ring (Alt)"],[358,"A","Sol Ring (Alt 2)"],[359,"A","Sol Ring (Alt 3)"],[360,"A","Solemn Simulacrum"],[361,"A","Swiftfoot Boots"],[362,"A","Sword of the Animist"],
+[363,"A","Talisman of Conviction"],[364,"A","Talisman of Dominance"],[365,"A","Talisman of Hierarchy"],[366,"A","Talisman of Indulgence"],[367,"A","Talisman of Progress"],[368,"A","Thought Vessel"],[369,"A","Tome of Legends"],
+[370,"A","Trailblazer's Boots"],[371,"A","Walking Ballista"],[372,"A","Wayfarer's Bauble"],
+[373,"L","Arcane Sanctum"],[374,"L","Ash Barrens"],[375,"L","Battlefield Forge"],[376,"L","Bonders' Enclave"],[377,"L","Brushland"],[378,"L","Canopy Vista"],[379,"L","Choked Estuary"],[380,"L","Cinder Glade"],
+[381,"L","Clifftop Retreat"],[382,"L","Command Tower"],[383,"L","Contaminated Aquifer"],[384,"L","Darkwater Catacombs"],[385,"L","Demolition Field"],[386,"L","Desolate Mire"],[387,"L","Dragonskull Summit"],[388,"L","Drowned Catacomb"],
+[389,"L","Evolving Wilds"],[390,"L","Exotic Orchard"],[391,"L","Fetid Heath"],[392,"L","Fire-Lit Thicket"],[393,"L","Flooded Grove"],[394,"L","Foreboding Ruins"],[395,"L","Forge of Heroes"],[396,"L","Fortified Village"],
+[397,"L","Furycalm Snarl"],[398,"L","Game Trail"],[399,"L","Geothermal Bog"],[400,"L","Glacial Fortress"],[401,"L","Graven Cairns"],[402,"L","High Market"],[403,"L","Hinterland Harbor"],[404,"L","Idyllic Beachfront"],
+[405,"L","Isolated Chapel"],[406,"L","Jungle Shrine"],[407,"L","Mossfire Valley"],[408,"L","Nesting Grounds"],[409,"L","Nomad Outpost"],[410,"L","Overflowing Basin"],[411,"L","Path of Ancestry"],[412,"L","Port Town"],
+[413,"L","Prairie Stream"],[414,"L","Radiant Grove"],[415,"L","Rogue's Passage"],[416,"L","Rootbound Crag"],[417,"L","Rugged Prairie"],[418,"L","Sacred Peaks"],[419,"L","Scavenger Grounds"],[420,"L","Seaside Citadel"],
+[421,"L","Shadowblood Ridge"],[422,"L","Shineshadow Snarl"],[423,"L","Skycloud Expanse"],[424,"L","Slayers' Stronghold"],[425,"L","Smoldering Marsh"],[426,"L","Spire of Industry"],[427,"L","Sulfurous Springs"],[428,"L","Sungrass Prairie"],
+[429,"L","Sunken Hollow"],[430,"L","Sunken Ruins"],[431,"L","Sunlit Marsh"],[432,"L","Sunpetal Grove"],[433,"L","Sunscorched Divide"],[434,"L","Tangled Islet"],[435,"L","Temple of Enlightenment"],[436,"L","Temple of Mystery"],
+[437,"L","Temple of Plenty"],[438,"L","Temple of the False God"],[439,"L","Underground River"],[440,"L","Vineglimmer Snarl"],[441,"L","Wooded Ridgeline"],
+[442,"V","Garland, Royal Kidnapper (Borderless)"],[443,"V","The Destined Warrior (Borderless)"],[444,"V","The Destined White Mage (Borderless)"],[445,"V","Chaos Shrine's Black Crystal (Borderless)"],
+[446,"V","The Destined Thief (Borderless)"],[447,"V","The Destined Black Mage (Borderless)"],[448,"V","Edea, Possessed Sorceress (Borderless)"],[449,"V","Fated Clash (Borderless)"],[450,"V","Rinoa, Angel Wing (Borderless)"],
+[451,"V","Seifer, Balamb Rival (Borderless)"],[452,"V","Duelist's Flame (Borderless)"],[453,"V","Squall, Gunblade Duelist (Borderless)"],[454,"V","Brilliant Wings (Borderless)"],[455,"V","Judgment of Alexander (Borderless)"],
+[456,"V","Mega Flare (Borderless)"],[457,"V","Amarant Coral (Borderless)"],[458,"V","Vivi's Persistence (Borderless)"],[459,"V","Search for Dagger (Borderless)"],[460,"V","Noctis, Heir Apparent (Borderless)"],
+[461,"V","Fishing Gear (Borderless)"],[462,"V","Chocobo Camp (Borderless)"],[463,"V","Flash Photography (Borderless)"],[464,"V","Campsite Cuisine (Borderless)"],[465,"V","Warrior's Resolve (Borderless)"],
+[466,"V","Tataru Taru (Chocobo Track Foil)"],[467,"V","Lulu, Stern Guardian (Chocobo Track Foil)"],[468,"V","Rikku, Resourceful Guardian (Chocobo Track Foil)"],[469,"V","Snapcaster Mage (Chocobo Track Foil)"],
+[470,"V","Yuffie, Materia Hunter (Chocobo Track Foil)"],[471,"V","Aerith, Last Ancient (Chocobo Track Foil)"],[472,"V","Barret, Avalanche Leader (Chocobo Track Foil)"],[473,"V","Emet-Selch of the Third Seat (Chocobo Track Foil)"],
+[474,"V","Estinien Varlineau (Chocobo Track Foil)"],[475,"V","Locke, Treasure Hunter (Chocobo Track Foil)"],[476,"V","Mog, Moogle Warrior (Chocobo Track Foil)"],[477,"V","Wakka, Devoted Guardian (Chocobo Track Foil)"],
+[478,"L","Plains"],[479,"L","Island"],[480,"L","Swamp"],[481,"L","Mountain"],[482,"L","Forest"],
+[483,"V","Paradise Chocobo (Promo)"],[484,"L","Command Tower (Alt)"],[485,"L","Command Tower (Alt 2)"],[486,"L","Command Tower (Alt 3)"],
+
+// ── TOKENS (TFIC) ──
+["FT1","T","#001 · Human Soldier (1/1 White)"],
+["FT2","T","#002 · Soldier (1/1 White)"],
+["FT3","T","#003 · Spirit (1/1 White)"],
+["FT4","T","#004 · Bird (1/1 White)"],
+["FT5","T","#005 · Squid (1/1 Blue — Islandwalk)"],
+["FT6","T","#006 · Zombie (2/2 Black)"],
+["FT7","T","#007 · Rebel (1/1 Red)"],
+["FT8","T","#008 · The Blackjack (Artifact — Vehicle)"],
+["FT9","T","#009 · Clue (Artifact Token)"],
+["FT10","T","#010 · Foretell (Helper Card)"],
+["FT11","T","#011 · The Monarch (Emblem)"],
+];
+
+const FIC_SEC_NAME={W:"White",U:"Blue",B:"Black",R:"Red",G:"Green",M:"Multicolor",A:"Artifacts & Spells",L:"Lands",X:"Extended Art",V:"Borderless & Special",T:"Tokens & Emblems"};
+const FIC_SEC_COLORS={W:"#d4af37",U:"#4a90d9",B:"#9b59b6",R:"#e74c3c",G:"#27ae60",M:"#e67e22",A:"#7f8c8d",L:"#16a085",X:"#8e44ad",V:"#1abc9c",T:"#8e44ad"};
+const FIC_STORAGE_KEY="ff_fic_tracker_v1";
+
+let ficOwned={};
+let ficShowMissing=false;
+
+function ficInit(){
+  try{ const d=localStorage.getItem(FIC_STORAGE_KEY); if(d) ficOwned=JSON.parse(d); }catch(e){}
+  renderFIC();
+}
+function ficSave(){ try{ localStorage.setItem(FIC_STORAGE_KEY,JSON.stringify(ficOwned)); }catch(e){} }
+
+function toggleFIC(idx){
+  const k=FIC_CARDS[idx][0];
+  if(ficOwned[k]) delete ficOwned[k]; else ficOwned[k]=1;
+  ficSave(); renderFIC();
+}
+function changeFICQty(idx,d,e){
+  e.stopPropagation();
+  const k=FIC_CARDS[idx][0];
+  const cur=ficOwned[k]||0;
+  const nv=Math.max(0,cur+d);
+  if(nv===0) delete ficOwned[k]; else ficOwned[k]=nv;
+  ficSave(); renderFIC();
+}
+function toggleFICMissing(){
+  ficShowMissing=!ficShowMissing;
+  document.getElementById('fic-missBtn').classList.toggle('on',ficShowMissing);
+  renderFIC();
+}
+function ficFilteredCards(){
+  const q=document.getElementById('fic-search').value.toLowerCase().trim();
+  const fs=document.getElementById('fic-fsec').value;
+  const results=[];
+  for(let i=0;i<FIC_CARDS.length;i++){
+    const c=FIC_CARDS[i];
+    if(fs&&c[1]!==fs) continue;
+    if(q){
+      const num='#'+String(c[0]).padStart(3,'0');
+      if(!c[2].toLowerCase().includes(q)&&!num.includes(q)&&!String(c[0]).includes(q)) continue;
+    }
+    if(ficShowMissing&&ficOwned[c[0]]) continue;
+    results.push({c,i});
+  }
+  return results;
+}
+function renderFIC(){
+  const total=FIC_CARDS.length;
+  const have=Object.keys(ficOwned).length;
+  const pct=Math.round(have/total*100);
+  document.getElementById('fic-owned').textContent=have;
+  document.getElementById('fic-miss').textContent=total-have;
+  document.getElementById('fic-pct').textContent=pct+'%';
+  document.getElementById('fic-total').textContent=total;
+  const cards=ficFilteredCards();
+  const el=document.getElementById('fic-list');
+  if(!cards.length){ el.innerHTML='<div class="empty">No cards match your filters</div>'; return; }
+  let html=''; let lastSec='';
+  for(const {c,i} of cards){
+    const k=c[0];
+    const qty=ficOwned[k]||0;
+    const isOwned=qty>0;
+    const num=typeof c[0]==='number'?'#'+String(c[0]).padStart(3,'0'):String(c[0]).replace('FT','#T');
+    if(c[1]!==lastSec){
+      lastSec=c[1];
+      html+=`<div class="section-head" style="color:${FIC_SEC_COLORS[c[1]]}">${FIC_SEC_NAME[c[1]]}</div>`;
+    }
+    html+=`<div class="card-row${isOwned?' owned':''}" onclick="toggleFIC(${i})" onmousedown="startFICPress(${i})" onmouseup="endPress()" onmouseleave="endPress()" ontouchstart="startFICPress(${i})" ontouchend="endPress()" ontouchcancel="endPress()">
+      <div class="cb-wrap"><span class="cb-check">✓</span></div>
+      <span class="num">${num}</span>
+      <span class="card-name">${num} · ${c[2]}</span>
+      <div class="qty-ctrl" onclick="event.stopPropagation()">
+        <button class="qb" onclick="changeFICQty(${i},-1,event)">−</button>
+        <span class="qv">${qty}</span>
+        <button class="qb" onclick="changeFICQty(${i},1,event)">+</button>
+      </div>
+    </div>`;
+  }
+  el.innerHTML=html;
+}
+function startFICPress(idx){
+  const c=FIC_CARDS[idx];
+  if(!c) return;
+  const num='#'+String(c[0]).padStart(3,'0');
+  pressTimer=setTimeout(()=>{
+    document.getElementById('popupNum').textContent=num;
+    document.getElementById('popupName').textContent=c[2];
+    document.getElementById('popupSec').textContent=c[1];
+    document.getElementById('popup').classList.add('show');
+  },500);
+}
+
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",ficInit);}else{ficInit();}
+
+
+// ═══════════════════════════════════════
+// FCA — THROUGH THE AGES (64 cards)
+// AAFIN — ART SERIES (53 cards)
+// [#, subset, rarity, name]
+// Rarity: M=Mythic R=Rare U=Uncommon C=Common A=Art Card
+// Subset: FCA or AAFIN
+// ═══════════════════════════════════════
+const FCA_CARDS=[
+// ── FCA: THROUGH THE AGES ──
+// White
+[1,"FCA","R","Hero of Light (Adeline, Resplendent Cathar)"],
+[2,"FCA","M","Knights of San d'Oria (Ranger-Captain of Eos)"],
+[3,"FCA","R","Firion, Swordmaster (Sram, Senior Edificer)"],
+[4,"FCA","U","Wild Rose Rebellion (Counterspell)"],
+[5,"FCA","M","Terra Branford (Urza, Lord High Artificer)"],
+[6,"FCA","R","Master Xande (Venser, Shaper Savant)"],
+[7,"FCA","R","Kefka's Tower (Bolas's Citadel)"],
+[8,"FCA","R","Darkness of Eternity (Dark Ritual)"],
+[9,"FCA","U","Battle at the Big Bridge (Fatal Push)"],
+[10,"FCA","U","Golbez, Clad in Darkness (Syr Konrad, the Grim)"],
+[11,"FCA","M","The Emperor, Hell Tyrant (Yawgmoth, Thran Physician)"],
+[12,"FCA","M","Dragon of Mount Gulg (Ancient Copper Dragon)"],
+[13,"FCA","R","Gilgamesh, Weapon Collector (Godo, Bandit Warlord)"],
+[14,"FCA","M","Kefka Palazzo (Purphoros, God of the Forge)"],
+[15,"FCA","R","Princess Sarah (Azusa, Lost but Seeking)"],
+[16,"FCA","M","The Cloudsea Djinn (Nyxbloom Ancient)"],
+[17,"FCA","R","Warrior of Light (Jodah, the Unifier)"],
+[18,"FCA","R","Cecil Harvey (Tymna, the Weaver)"],
+[19,"FCA","R","Bartz Klauser (Winota, Joiner of Forces)"],
+[20,"FCA","R","Giant of Babil (Traxos, Scourge of Kroog)"],
+[21,"FCA","M","Blessing of the Oracle (Akroma's Will)"],
+[22,"FCA","U","Squall Leonhart (Danitha Capashen, Paragon)"],
+[23,"FCA","R","Noctis Lucis Caelum (Kenrith, the Returned King)"],
+[24,"FCA","R","Garnet Til Alexandros 17th (Loran of the Third Path)"],
+[25,"FCA","R","Minwu, Rebellion Strategist (Mangara, the Diplomat)"],
+[26,"FCA","U","Memories of Nibelheim (Stroke of Midnight)"],
+[27,"FCA","U","The Imperial City of Archades (Wall of Omens)"],
+[28,"FCA","U","Endwalker (Brainstorm)"],
+[29,"FCA","R","To the Crystal Tower (Cryptic Command)"],
+[30,"FCA","C","Vana'diel Adventurers (Laboratory Maniac)"],
+[31,"FCA","M","Stay with Me (Rhystic Study)"],
+[32,"FCA","R","Edea Kramer (Teferi, Mage of Zhalfir)"],
+[33,"FCA","U","Baron Rivalry (Deadly Dispute)"],
+[34,"FCA","U","Shantotto's Coercion (Diabolic Intent)"],
+[35,"FCA","R","The Shadow Lord (Gix, Yawgmoth Praetor)"],
+[36,"FCA","R","Emet-Selch, Ascian (K'rrik, Son of Yawgmoth)"],
+[37,"FCA","U","Ardyn Izunia (Varragoth, Bloodsky Sire)"],
+[38,"FCA","U","Vaan, Aspiring Sky Pirate (Captain Lannery Storm)"],
+[39,"FCA","U","A Promise Fulfilled (Light Up the Stage)"],
+[40,"FCA","U","Thrum of the Vestige (Lightning Bolt)"],
+[41,"FCA","R","Dawn Warriors' Legacy (Mizzix's Mastery)"],
+[42,"FCA","M","Cloud Strife (Najeela, the Blade-Blossom)"],
+[43,"FCA","M","Zidane Tribal (Ragavan, Nimble Pilferer)"],
+[44,"FCA","R","Fal'Cie Paradise (Carpet of Flowers)"],
+[45,"FCA","U","Newfound Adventure (Farseek)"],
+[46,"FCA","U","Vayne Carudas Solidor (Fynn, the Fangbearer)"],
+[47,"FCA","U","In Search of the Frozen Esper (Nature's Claim)"],
+[48,"FCA","R","Astral Titan (Primeval Titan)"],
+[49,"FCA","M","Sephiroth, the Savior (Atraxa, Grand Unifier)"],
+[50,"FCA","R","Hugo Kupka (Bruse Tarl, Boorish Herder)"],
+[51,"FCA","U","Shadowbringers (Dovin's Veto)"],
+[52,"FCA","R","Kuja, Mage Manufacturer (Inalla, Archmage Ritualist)"],
+[53,"FCA","R","Benedikta Harman (Ishai, Ojutai Dragonspeaker)"],
+[54,"FCA","R","Lightning, Lone Commando (Isshin, Two Heavens as One)"],
+[55,"FCA","M","Seymour Guado (Kinnan, Bonder Prodigy)"],
+[56,"FCA","R","Barnabas Tharmr (Kraum, Ludevic's Opus)"],
+[57,"FCA","R","Orphan, Cocoon fal'Cie (Muldrotha, the Gravetide)"],
+[58,"FCA","M","Tidus, Zanarkand Fayth (Thrasios, Triton Hero)"],
+[59,"FCA","M","Clive Rosfield (Vial Smasher the Fierce)"],
+[60,"FCA","R","Yuffie Kisaragi (Yuriko, the Tiger's Shadow)"],
+[61,"FCA","R","Crystal of Altar Cave (Chromatic Lantern)"],
+[62,"FCA","R","The Strahl (Smuggler's Copter)"],
+[63,"FCA","U","Luka Stadium (Strixhaven Stadium)"],
+[64,"FCA","R","Balamb Garden (Command Beacon)"],
+// ── AAFIN: ART SERIES ──
+[1,"AAFIN","A","Delivery Moogle Art Card"],
+[2,"AAFIN","A","Machinist's Arsenal Art Card"],
+[3,"AAFIN","A","Stiltzkin, Moogle Merchant Art Card"],
+[4,"AAFIN","A","Astrologian's Planisphere Art Card"],
+[5,"AAFIN","A","Sage's Nouliths Art Card"],
+[6,"AAFIN","A","The Final Days Art Card"],
+[7,"AAFIN","A","Yiazmat, Ultimate Mark Art Card"],
+[8,"AAFIN","A","Barret Wallace Art Card"],
+[9,"AAFIN","A","Sorceress's Schemes Art Card"],
+[10,"AAFIN","A","Gysahl Greens Art Card"],
+[11,"AAFIN","A","Quina, Qu Gourmet Art Card"],
+[12,"AAFIN","A","Hades, Sorcerer of Eld Art Card"],
+[13,"AAFIN","A","The Emperor of Palamecia Art Card"],
+[14,"AAFIN","A","Jenova, Ancient Calamity Art Card"],
+[15,"AAFIN","A","Locke Cole Art Card"],
+[16,"AAFIN","A","Shantotto, Tactician Magician Art Card"],
+[17,"AAFIN","A","Vivi Ornitier Art Card"],
+[18,"AAFIN","A","Rabanastre, Royal City Art Card"],
+[19,"AAFIN","A","G'raha Tia, Scion Reborn Art Card (#19)"],
+[20,"AAFIN","A","Terra, Herald of Hope Art Card"],
+[21,"AAFIN","A","Y'shtola, Night's Blessed Art Card (#21)"],
+[22,"AAFIN","A","Yuna, Grand Summoner Art Card"],
+[23,"AAFIN","A","Cloud's Limit Break Art Card"],
+[24,"AAFIN","A","Dancer's Chakrams Art Card"],
+[25,"AAFIN","A","Tataru Taru Art Card"],
+[26,"AAFIN","A","Shadow, Mysterious Assassin Art Card"],
+[27,"AAFIN","A","Edgar, Master Machinist Art Card"],
+[28,"AAFIN","A","Estinien Varlineau Art Card"],
+[29,"AAFIN","A","Kimahri, Valiant Guardian Art Card"],
+[30,"AAFIN","A","Red XIII, Proud Warrior Art Card"],
+[31,"AAFIN","A","Farewell Art Card"],
+[32,"AAFIN","A","Together Forever Art Card"],
+[33,"AAFIN","A","Ruinous Ultimatum Art Card"],
+[34,"AAFIN","A","Hydaelyn, the Mothercrystal Art Card"],
+[35,"AAFIN","A","Nibelheim Aflame Art Card"],
+[36,"AAFIN","A","Sin, Spira's Punishment Art Card"],
+[37,"AAFIN","A","Summon: Bahamut Art Card"],
+[38,"AAFIN","A","Summon: Leviathan Art Card"],
+[39,"AAFIN","A","Braska's Final Aeon Art Card"],
+[40,"AAFIN","A","Summon: Esper Ramuh Art Card"],
+[41,"AAFIN","A","Summon: Good King Mog XII Art Card"],
+[42,"AAFIN","A","Dion, Bahamut's Dominant Art Card"],
+[43,"AAFIN","A","Jill, Shiva's Dominant Art Card"],
+[44,"AAFIN","A","Sephiroth, Fabled SOLDIER Art Card"],
+[45,"AAFIN","A","Golbez, Crystal Collector Art Card"],
+[46,"AAFIN","A","Kefka, Court Mage Art Card"],
+[47,"AAFIN","A","Squall, SeeD Mercenary Art Card"],
+[48,"AAFIN","A","Yuna, Hope of Spira Art Card"],
+[49,"AAFIN","A","Zidane, Tantalus Thief Art Card"],
+[50,"AAFIN","A","Cloud, Ex-SOLDIER Art Card"],
+[51,"AAFIN","A","G'raha Tia, Scion Reborn Art Card (#51)"],
+[52,"AAFIN","A","Tifa, Martial Artist Art Card"],
+[53,"AAFIN","A","Y'shtola, Night's Blessed Art Card (#53)"],
+];
+
+const FCA_SEC_NAME={M:"Mythic Rare",R:"Rare",U:"Uncommon",C:"Common",A:"Art Card"};
+const FCA_SEC_COLORS={M:"#e8a000",R:"#b08840",U:"#4a90d9",C:"#888",A:"#8e44ad"};
+const FCA_SUB_COLORS={FCA:"#16a085",AAFIN:"#c0392b"};
+const FCA_STORAGE_KEY="ff_fca_tracker_v1";
+
+let fcaOwned={};
+let fcaShowMissing=false;
+
+function fcaInit(){
+  try{ const d=localStorage.getItem(FCA_STORAGE_KEY); if(d) fcaOwned=JSON.parse(d); }catch(e){}
+  renderFCA();
+}
+function fcaSave(){ try{ localStorage.setItem(FCA_STORAGE_KEY,JSON.stringify(fcaOwned)); }catch(e){} }
+
+function toggleFCA(idx){
+  const c=FCA_CARDS[idx];
+  const k=c[1]+':'+c[0];
+  if(fcaOwned[k]) delete fcaOwned[k]; else fcaOwned[k]=1;
+  fcaSave(); renderFCA();
+}
+function changeFCAQty(idx,d,e){
+  e.stopPropagation();
+  const c=FCA_CARDS[idx];
+  const k=c[1]+':'+c[0];
+  const cur=fcaOwned[k]||0;
+  const nv=Math.max(0,cur+d);
+  if(nv===0) delete fcaOwned[k]; else fcaOwned[k]=nv;
+  fcaSave(); renderFCA();
+}
+function toggleFCAMissing(){
+  fcaShowMissing=!fcaShowMissing;
+  document.getElementById('fca-missBtn').classList.toggle('on',fcaShowMissing);
+  renderFCA();
+}
+function fcaFilteredCards(){
+  const q=document.getElementById('fca-search').value.toLowerCase().trim();
+  const fsub=document.getElementById('fca-fsub').value;
+  const fsec=document.getElementById('fca-fsec').value;
+  const results=[];
+  for(let i=0;i<FCA_CARDS.length;i++){
+    const c=FCA_CARDS[i];
+    if(fsub&&c[1]!==fsub) continue;
+    if(fsec&&c[2]!==fsec) continue;
+    if(q){
+      const num='#'+String(c[0]).padStart(3,'0');
+      if(!c[3].toLowerCase().includes(q)&&!num.includes(q)&&!String(c[0]).includes(q)) continue;
+    }
+    const k=c[1]+':'+c[0];
+    if(fcaShowMissing&&fcaOwned[k]) continue;
+    results.push({c,i});
+  }
+  return results;
+}
+function renderFCA(){
+  const total=FCA_CARDS.length;
+  const have=Object.keys(fcaOwned).length;
+  const pct=Math.round(have/total*100);
+  const oe=document.getElementById('fca-owned'); if(oe) oe.textContent=have;
+  const me=document.getElementById('fca-miss'); if(me) me.textContent=total-have;
+  const pe=document.getElementById('fca-pct'); if(pe) pe.textContent=pct+'%';
+  const te=document.getElementById('fca-total'); if(te) te.textContent=total;
+  const fcapb=document.getElementById('fca-prog'); if(fcapb) fcapb.style.width=pct+'%';
+
+  const cards=fcaFilteredCards();
+  const el=document.getElementById('fca-list');
+  if(!el) return;
+  if(!cards.length){ el.innerHTML='<div class="empty">No cards match your filters</div>'; return; }
+
+  let html=''; let lastSub=''; let lastSec='';
+  for(const {c,i} of cards){
+    const k=c[1]+':'+c[0];
+    const qty=fcaOwned[k]||0;
+    const isOwned=qty>0;
+    const num='#'+String(c[0]).padStart(3,'0');
+    // Show set header when subset changes
+    if(c[1]!==lastSub){
+      lastSub=c[1];
+      lastSec='';
+      const subLabel=c[1]==='FCA'?'FCA · Through the Ages (64 cards)':'AAFIN · Art Series (53 cards)';
+      html+=`<div class="section-head" style="color:${FCA_SUB_COLORS[c[1]]};font-size:11px">${subLabel}</div>`;
+    }
+    // Show rarity sub-header when rarity changes within a set
+    if(c[2]!==lastSec){
+      lastSec=c[2];
+      html+=`<div class="section-head" style="color:${FCA_SEC_COLORS[c[2]]};font-size:10px;padding-left:8px">${FCA_SEC_NAME[c[2]]}</div>`;
+    }
+    html+=`<div class="card-row${isOwned?' owned':''}" onclick="toggleFCA(${i})" onmousedown="startFCAPress(${i})" onmouseup="endPress()" onmouseleave="endPress()" ontouchstart="startFCAPress(${i})" ontouchend="endPress()" ontouchcancel="endPress()">
+      <div class="cb-wrap"><span class="cb-check">✓</span></div>
+      <span class="num">${num}</span>
+      <span class="card-name">${num} · ${c[3]}</span>
+      <div class="qty-ctrl" onclick="event.stopPropagation()">
+        <button class="qb" onclick="changeFCAQty(${i},-1,event)">−</button>
+        <span class="qv">${qty}</span>
+        <button class="qb" onclick="changeFCAQty(${i},1,event)">+</button>
+      </div>
+    </div>`;
+  }
+  el.innerHTML=html;
+}
+function startFCAPress(idx){
+  const c=FCA_CARDS[idx];
+  if(!c) return;
+  const num='#'+String(c[0]).padStart(3,'0');
+  const setLabel=c[1]==='FCA'?'FCA · Through the Ages':'AAFIN · Art Series';
+  pressTimer=setTimeout(()=>{
+    document.getElementById('popupNum').textContent=num;
+    document.getElementById('popupName').textContent=c[3];
+    document.getElementById('popupSec').textContent=setLabel;
+    document.getElementById('popup').classList.add('show');
+  },500);
+}
+if(document.readyState==="loading"){
+  document.addEventListener("DOMContentLoaded",fcaInit);
+}else{
+  fcaInit();
+}
+
 </script>
 </body>
 </html>
+<div class="page" id="page-fca">
+<div class="header">
+  <div class="logo">FF · MTG Tracker <span>FCA · Through the Ages &amp; AAFIN · Art Series · 117 Cards</span></div>
+  <div class="stats-row">
+    <div class="stat"><div class="stat-n green" id="fca-owned">0</div><div class="stat-l">Owned</div></div>
+    <div class="stat"><div class="stat-n" id="fca-miss">117</div><div class="stat-l">Missing</div></div>
+    <div class="stat"><div class="stat-n gold" id="fca-pct">0%</div><div class="stat-l">Done</div></div>
+    <div class="stat"><div class="stat-n" id="fca-total">117</div><div class="stat-l">Total</div></div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="fca-prog" style="width:0%"></div></div>
+</div>
+<div class="filters">
+  <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" id="fca-search" placeholder="Search name or #number…" oninput="renderFCA()"></div>
+  <div class="filter-row">
+    <select id="fca-fsub" onchange="renderFCA()">
+      <option value="">Both sets</option>
+      <option value="FCA">FCA · Through the Ages</option>
+      <option value="AAFIN">AAFIN · Art Series</option>
+    </select>
+    <button class="miss-btn" id="fca-missBtn" onclick="toggleFCAMissing()">Missing only</button>
+  </div>
+  <div class="filter-row">
+    <select id="fca-fsec" onchange="renderFCA()">
+      <option value="">All rarities</option>
+      <option value="M">Mythic Rare</option>
+      <option value="R">Rare</option>
+      <option value="U">Uncommon</option>
+      <option value="C">Common</option>
+      <option value="A">Art Card</option>
+    </select>
+  </div>
+</div>
+<div class="list" id="fca-list"></div>
+</div>
+
